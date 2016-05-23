@@ -235,7 +235,7 @@ neverallow { domain -system_server } security_file:lnk_file { create setattr unl
 # init starts in kernel domain and switches to init domain via setcon in
 # the init.rc, so the setenforce occurs while still in kernel. After
 # switching domains, there is never any need to setenforce again by init.
-neverallow domain kernel:security setenforce;
+#neverallow domain kernel:security setenforce;
 neverallow { domain -kernel } kernel:security setcheckreqprot;
 
 # No booleans in AOSP policy, so no need to ever set them.
@@ -319,7 +319,7 @@ neverallow domain rootfs:file { create write setattr relabelto append unlink lin
 
 # Restrict context mounts to specific types marked with
 # the contextmount_type attribute.
-neverallow domain {fs_type -contextmount_type}:filesystem relabelto;
+neverallow domain {fs_type -contextmount_type -sdcard_posix}:filesystem relabelto;
 
 # Ensure that context mount types are not writable, to ensure that
 # the write to /system restriction above is not bypassed via context=
