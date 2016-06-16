@@ -1204,20 +1204,84 @@ class BlockDifference(object):
                                         OPTIONS.source_info_dict)
 
   def WriteScript(self, script, output_zip, progress=None):
+    if not self.src:
       # write the output unconditionally
       script.Print("Patching %s image unconditionally..." % (self.partition,))
+    else:
+      script.Print("Patching %s image after verification." % (self.partition,))
 
     if progress:
       script.ShowProgress(progress, 0)
     self._WriteUpdate(script, output_zip)
+    self._WritePostInstallVerifyScript(script)
 
   def WriteVerifyScript(self, script):
     partition = self.partition
     if not self.src:
       script.Print("Image %s will be patched unconditionally." % (partition,))
     else:
-        script.AppendExtra(('package_extract_file("%s.transfer.list"), '
-                            '"%s.new.dat", "%s.patch.dat"'))
+      ranges = self.src.care_map.subtract(self.src.clobbered_blocks)
+      ranges_str = ranges.to_string_raw()
+      if self.version >= 3:
+        script.AppendExtra(('if (range_sha1("%s", "%s") == "%s" || '
+                            'block_image_verify("%s", '
+                            'package_extract_file("%s.transfer.list"), '
+                            '"%s.new.dat", "%s.patch.dat")) then') % (
+                            self.device, ranges_str, self.src.TotalSha1(),
+                            self.device, partition, partition, partition))
+      else:
+        script.AppendExtra('if range_sha1("%s", "%s") == "%s" then' % (
+                           self.device, ranges_str, self.src.TotalSha1()))
+      script.Print('Verified %s image...' % (partition,))
+      script.AppendExtra('else')
+
+      # When generating incrementals for the system and vendor partitions,
+      # explicitly check the first block (which contains the superblock) of
+      # the partition to see if it's what we expect. If this check fails,
+      # give an explicit log message about the partition having been
+      # remounted R/W (the most likely explanation) and the need to flash to
+      # get OTAs working again.
+      if self.check_first_block:
+        self._CheckFirstBlock(script)
+
+      # Abort the OTA update. Note that the incremental OTA cannot be applied
+      # even if it may match the checksum of the target partition.
+      # a) If version < 3, operations like move and erase will make changes
+      #    unconditionally and damage the partition.
+      # b) If version >= 3, it won't even reach here.
+      script.AppendExtra(('abort("%s partition has unexpected contents");\n'
+                          'endif;') % (partition,))
+
+  def _WritePostInstallVerifyScript(self, script):
+    partition = self.partition
+    script.Print('Verifying the updated %s image...' % (partition,))
+    # Unlike pre-install verification, clobbered_blocks should not be ignored.
+    ranges = self.tgt.care_map
+    ranges_str = ranges.to_string_raw()
+    script.AppendExtra('if range_sha1("%s", "%s") == "%s" then' % (
+                       self.device, ranges_str,
+                       self.tgt.TotalSha1(include_clobbered_blocks=True)))
+
+    # Bug: 20881595
+    # Verify that extended blocks are really zeroed out.
+    if self.tgt.extended:
+      ranges_str = self.tgt.extended.to_string_raw()
+      script.AppendExtra('if range_sha1("%s", "%s") == "%s" then' % (
+                         self.device, ranges_str,
+                         self._HashZeroBlocks(self.tgt.extended.size())))
+      script.Print('Verified the updated %s image.' % (partition,))
+      script.AppendExtra(
+          'else\n'
+          '  abort("%s partition has unexpected non-zero contents after OTA '
+          'update");\n'
+          'endif;' % (partition,))
+    else:
+      script.Print('Verified the updated %s image.' % (partition,))
+
+    script.AppendExtra(
+        'else\n'
+        '  abort("%s partition has unexpected contents after OTA update");\n'
+        'endif;' % (partition,))
 
   def _WriteUpdate(self, script, output_zip):
     ZipWrite(output_zip,
@@ -1236,6 +1300,40 @@ class BlockDifference(object):
             '"{partition}.new.dat", "{partition}.patch.dat");\n'.format(
                 device=self.device, partition=self.partition))
     script.AppendExtra(script.WordWrap(call))
+
+  def _HashBlocks(self, source, ranges): # pylint: disable=no-self-use
+    data = source.ReadRangeSet(ranges)
+    ctx = sha1()
+
+    for p in data:
+      ctx.update(p)
+
+    return ctx.hexdigest()
+
+  def _HashZeroBlocks(self, num_blocks): # pylint: disable=no-self-use
+    """Return the hash value for all zero blocks."""
+    zero_block = '\x00' * 4096
+    ctx = sha1()
+    for _ in range(num_blocks):
+      ctx.update(zero_block)
+
+    return ctx.hexdigest()
+
+  # TODO(tbao): Due to http://b/20939131, block 0 may be changed without
+  # remounting R/W. Will change the checking to a finer-grained way to
+  # mask off those bits.
+  def _CheckFirstBlock(self, script):
+    r = rangelib.RangeSet((0, 1))
+    srchash = self._HashBlocks(self.src, r)
+
+    script.AppendExtra(('(range_sha1("%s", "%s") == "%s") || '
+                        'abort("%s has been remounted R/W; '
+                        'reflash device to reenable OTA updates");')
+                       % (self.device, r.to_string_raw(), srchash,
+                          self.device))
+
+DataImage = blockimgdiff.DataImage
+
 
 # map recovery.fstab's fs_types to mount/format "partition types"
 PARTITION_TYPES = {
