@@ -1207,11 +1207,34 @@ class BlockDifference(object):
     if not self.src:
       # write the output unconditionally
       script.Print("Patching %s image unconditionally..." % (self.partition,))
+    else:
+      script.Print("Patching %s image after verification." % (self.partition,))
 
     if progress:
       script.ShowProgress(progress, 0)
     self._WriteUpdate(script, output_zip)
- 
+    self._WritePostInstallVerifyScript(script)
+
+  def WriteVerifyScript(self, script):
+    partition = self.partition
+    if not self.src:
+      script.Print("Image %s will be patched unconditionally." % (partition,))
+    else:
+      ranges = self.src.care_map.subtract(self.src.clobbered_blocks)
+      ranges_str = ranges.to_string_raw()
+      if self.version >= 3:
+        script.AppendExtra(('if (range_sha1("%s", "%s") == "%s" || '
+                            'block_image_verify("%s", '
+                            'package_extract_file("%s.transfer.list"), '
+                            '"%s.new.dat", "%s.patch.dat")) then') % (
+                            self.device, ranges_str, self.src.TotalSha1(),
+                            self.device, partition, partition, partition))
+      else:
+        script.AppendExtra('if range_sha1("%s", "%s") == "%s" then' % (
+                           self.device, ranges_str, self.src.TotalSha1()))
+      script.Print('Verified %s image...' % (partition,))
+      script.AppendExtra('else')
+
       # When generating incrementals for the system and vendor partitions,
       # explicitly check the first block (which contains the superblock) of
       # the partition to see if it's what we expect. If this check fails,
@@ -1220,6 +1243,45 @@ class BlockDifference(object):
       # get OTAs working again.
       if self.check_first_block:
         self._CheckFirstBlock(script)
+
+      # Abort the OTA update. Note that the incremental OTA cannot be applied
+      # even if it may match the checksum of the target partition.
+      # a) If version < 3, operations like move and erase will make changes
+      #    unconditionally and damage the partition.
+      # b) If version >= 3, it won't even reach here.
+      script.AppendExtra(('abort("%s partition has unexpected contents");\n'
+                          'endif;') % (partition,))
+
+  def _WritePostInstallVerifyScript(self, script):
+    partition = self.partition
+    script.Print('Verifying the updated %s image...' % (partition,))
+    # Unlike pre-install verification, clobbered_blocks should not be ignored.
+    ranges = self.tgt.care_map
+    ranges_str = ranges.to_string_raw()
+    script.AppendExtra('if range_sha1("%s", "%s") == "%s" then' % (
+                       self.device, ranges_str,
+                       self.tgt.TotalSha1(include_clobbered_blocks=True)))
+
+    # Bug: 20881595
+    # Verify that extended blocks are really zeroed out.
+    if self.tgt.extended:
+      ranges_str = self.tgt.extended.to_string_raw()
+      script.AppendExtra('if range_sha1("%s", "%s") == "%s" then' % (
+                         self.device, ranges_str,
+                         self._HashZeroBlocks(self.tgt.extended.size())))
+      script.Print('Verified the updated %s image.' % (partition,))
+      script.AppendExtra(
+          'else\n'
+          '  abort("%s partition has unexpected non-zero contents after OTA '
+          'update");\n'
+          'endif;' % (partition,))
+    else:
+      script.Print('Verified the updated %s image.' % (partition,))
+
+    script.AppendExtra(
+        'else\n'
+        '  abort("%s partition has unexpected contents after OTA update");\n'
+        'endif;' % (partition,))
 
   def _WriteUpdate(self, script, output_zip):
     ZipWrite(output_zip,
