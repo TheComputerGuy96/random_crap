@@ -1206,8 +1206,6 @@ class BlockDifference(object):
   def WriteScript(self, script, output_zip, progress=None):
       # write the output unconditionally
       script.Print("Patching %s image unconditionally..." % (self.partition,))
-
-  if progress:
       script.ShowProgress(progress, 0)
       self._WriteUpdate(script, output_zip)
 
