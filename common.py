@@ -1203,9 +1203,12 @@ class BlockDifference(object):
       _, self.device = GetTypeAndDevice("/" + partition,
                                         OPTIONS.source_info_dict)
 
-  def WriteScript(self, script, output_zip, progress=None):
+  def WriteScript(self, script, output_zip):
       # write the output unconditionally
       script.Print("Patching %s image unconditionally..." % (self.partition,))
+      progress = None
+
+  if progress:
       script.ShowProgress(progress, 0)
       self._WriteUpdate(script, output_zip)
 
@@ -1214,7 +1217,7 @@ class BlockDifference(object):
     if not self.src:
       script.Print("Image %s will be patched unconditionally." % (partition,))
     else:
-        script.AppendExtra(('package_extract_file("%s.transfer.list"), '
+      script.AppendExtra(('package_extract_file("%s.transfer.list"), '
                             '"%s.new.dat", "%s.patch.dat"'))
 
   def _WriteUpdate(self, script, output_zip):
