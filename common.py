@@ -1210,8 +1210,6 @@ class BlockDifference(object):
       progress = None
       script.ShowProgress(progress, 0)
 
-  self._WriteUpdate(script, output_zip)
-
   def WriteVerifyScript(self, script):
     partition = self.partition
     script.Print("Image %s will be patched unconditionally." % (partition,))
@@ -1243,6 +1241,8 @@ PARTITION_TYPES = {
     "f2fs": "EMMC",
     "squashfs": "EMMC"
 }
+
+  WriteUpdate(script, output_zip)
 
 def GetTypeAndDevice(mount_point, info):
   fstab = info["fstab"]
