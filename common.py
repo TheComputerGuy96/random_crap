@@ -1209,15 +1209,12 @@ class BlockDifference(object):
   def progress():
       progress = None
       script.ShowProgress(progress, 0)
-      self._WriteUpdate(script, output_zip)
+
+  self._WriteUpdate(script, output_zip)
 
   def WriteVerifyScript(self, script):
     partition = self.partition
-    if not self.src:
-      script.Print("Image %s will be patched unconditionally." % (partition,))
-    else:
-      script.AppendExtra(('package_extract_file("%s.transfer.list"), '
-                            '"%s.new.dat", "%s.patch.dat"'))
+    script.Print("Image %s will be patched unconditionally." % (partition,))
 
   def _WriteUpdate(self, script, output_zip):
     ZipWrite(output_zip,
