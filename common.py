@@ -1242,7 +1242,7 @@ PARTITION_TYPES = {
     "squashfs": "EMMC"
 }
 
-self._WriteUpdate(script, output_zip)
+_WriteUpdate(script, output_zip)
 
 def GetTypeAndDevice(mount_point, info):
   fstab = info["fstab"]
